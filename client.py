@@ -1,39 +1,56 @@
 import socket
+import struct
 import os
 
-def read_file(file_path):
-    with open(file_path, 'rb') as file:
-        return file.read()
+# Client settings
+SERVER_HOST = 'localhost'
+SERVER_PORT = 5000
+CHUNK_SIZE = 1024
 
-def client(file_path):
-    host = '127.0.0.1'
-    port = 5000
+# Create a UDP socket
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    file_type = os.path.splitext(file_path)[1][1:]  # Extracting the file extension
+# Ask user for file path
+file_path = input("Enter the file path: ")
 
-    # Step 1: Send initial message
-    client_socket.sendto(b"file_transfer_request", (host, port))
-    response, _ = client_socket.recvfrom(1024)  # Receive acknowledgment
-    if response != b"ok":
-        print("Server not ready for file transfer.")
-        return
-
-    # Step 2: Send file type and size
+if os.path.isfile(file_path):
+    file_name = os.path.basename(file_path)
+    file_format = os.path.splitext(file_path)[1][1:]
     file_size = os.path.getsize(file_path)
-    file_info = f"{file_type},{file_size}"
-    client_socket.sendto(file_info.encode('utf-8'), (host, port))
-    response, _ = client_socket.recvfrom(1024)  # Receive acknowledgment
-    if response != b"ok":
-        print("Server rejected file info.")
-        return
 
-    # Step 3: Send file data
-    file_data = read_file(file_path)
-    client_socket.sendto(file_data, (host, port))
+    # Send request to server
+    client_socket.sendto(b'request_permission', (SERVER_HOST, SERVER_PORT))
+    print("Requesting permission from server")
 
-    print("File sent successfully.")
+    # Receive grant permission response
+    data, address = client_socket.recvfrom(1024)
+    if data.decode() == 'granted':
+        print("Permission granted by server")
 
-if __name__ == '__main__':
-    file_path = input("Enter the path of the file: ")
-    client(file_path)
+        # Send file metadata
+        client_socket.sendto(f"{file_name},{file_format},{file_size}".encode(), (SERVER_HOST, SERVER_PORT))
+
+        # Receive ready to receive file response
+        data, address = client_socket.recvfrom(1024)
+        if data.decode() == 'ready':
+            print("Server is ready to receive file")
+
+            # Send file chunks
+            with open(file_path, 'rb') as f:
+                chunk_num = 0
+                while True:
+                    chunk_data = f.read(CHUNK_SIZE)
+                    if not chunk_data:
+                        break
+                    client_socket.sendto(struct.pack('!I', chunk_num) + chunk_data, (SERVER_HOST, SERVER_PORT))
+                    chunk_num += 1
+                    print(f"Sent chunk {chunk_num}")
+
+                    # Receive ACK
+                    data, address = client_socket.recvfrom(4)
+                    ack_chunk_num = struct.unpack('!I', data)[0]
+                    print(f"Received ACK for chunk {ack_chunk_num}")
+
+    print("File sent successfully")
+else:
+    print("File not found")

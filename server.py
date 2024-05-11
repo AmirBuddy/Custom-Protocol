@@ -1,32 +1,49 @@
 import socket
-import os
+import struct
 
-def save_file(file_name, file_data):
-    with open(file_name, 'wb') as f:
-        f.write(file_data)
+# Server settings
+SERVER_HOST = 'localhost'
+SERVER_PORT = 5000
+CHUNK_SIZE = 1024
 
-def server():
-    host = '127.0.0.1'
-    port = 5000
+# Create a UDP socket
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server_socket.bind((SERVER_HOST, SERVER_PORT))
 
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_socket.bind((host, port))
+print(f"Server listening on {SERVER_HOST}:{SERVER_PORT}")
 
-    print("Server is listening...")
+while True:
+    # Receive request from client
+    data, address = server_socket.recvfrom(1024)
+    if data.decode() == 'request_permission':
+        # Send grant permission response
+        server_socket.sendto(b'granted', address)
+        print("Permission granted to client")
 
-    while True:
-        initial_message, client_address = server_socket.recvfrom(1024)  # Receive initial message
-        if initial_message == b"file_transfer_request":  # Check if it's a file transfer request
-            server_socket.sendto(b"ok", client_address)  # Send acknowledgment
-            file_info, _ = server_socket.recvfrom(1024)  # Receive file info
-            file_type, file_size = file_info.decode('utf-8').split(',')
-            file_size = int(file_size)
-            server_socket.sendto(b"ok", client_address)  # Send acknowledgment
-            file_data, _ = server_socket.recvfrom(file_size + 1024)  # Receive file data
-            file_name = f"uploaded_file.{file_type}"
-            save_file(file_name, file_data)
-            print(f"File received and saved as {file_name}")
-            break  # Break after receiving file data once
+        # Receive file metadata
+        data, address = server_socket.recvfrom(1024)
+        file_name, file_format, file_size = data.decode().split(',')
+        file_size = int(file_size)
+        print(f"Receiving file: {file_name}.{file_format} ({file_size} bytes)")
 
-if __name__ == '__main__':
-    server()
+        # Send ready to receive file response
+        server_socket.sendto(b'ready', address)
+
+        # Receive file chunks
+        chunks_received = {}
+        while len(chunks_received) < (file_size // CHUNK_SIZE) + 1:
+            data, address = server_socket.recvfrom(CHUNK_SIZE + 4)
+            chunk_num = struct.unpack('!I', data[:4])[0]
+            chunk_data = data[4:]
+            chunks_received[chunk_num] = chunk_data
+            print(f"Received chunk {chunk_num}")
+
+            # Send ACK
+            server_socket.sendto(struct.pack('!I', chunk_num), address)
+
+        # Reassemble file
+        with open(f'new-{file_name}', 'wb') as f:
+            for i in range((file_size // CHUNK_SIZE) + 1):
+                f.write(chunks_received[i])
+
+        print(f"File received and saved as {file_name}")
