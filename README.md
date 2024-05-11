@@ -1,4 +1,5 @@
 # conv-protocol
 
-for now it's about testing it on file upload. but will get updated to a good thing later on :)
-btw, i'm trying to implement a reliable protocol based on UDP, which is the challenge :)
+Trying to implement a custom protocol based on UDP.
+
+I just added simple reliability mechanism to the UDP protocol for file transfer/upload from client to server using conv-protocol.
